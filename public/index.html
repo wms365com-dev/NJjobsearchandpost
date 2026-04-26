@@ -92,7 +92,33 @@
       if(result.post_text) $('post'+id).value=result.post_text;
       $('msg').textContent=result.ok?'Hashtags added.':'Could not refresh post.';
     }
-    async function copyPost(id){ await navigator.clipboard.writeText($('post'+id).value); $('msg').textContent='Copied. Paste into Facebook group or Meta Business Suite.'; }
+    async function copyPost(id){
+      const text=$('post'+id).value.replace(/\r?\n/g,'\r\n');
+      const html=esc(text).replace(/\r\n/g,'<br>');
+      try{
+        if(window.ClipboardItem){
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              'text/plain': new Blob([text],{type:'text/plain'}),
+              'text/html': new Blob([html],{type:'text/html'})
+            })
+          ]);
+        }else{
+          await navigator.clipboard.writeText(text);
+        }
+      }catch(e){
+        const ta=document.createElement('textarea');
+        ta.value=text;
+        ta.style.position='fixed';
+        ta.style.left='-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      $('msg').textContent='Copied with line breaks. Paste into Facebook group or Meta Business Suite.';
+    }
     async function getFacebookGroupUrl(){
       const r=await fetch('/api/config');
       if(!r.ok) return 'https://www.facebook.com/groups/jobsinnewjersey';
