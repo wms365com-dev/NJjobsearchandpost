@@ -37,6 +37,7 @@
       <button onclick="fetchJobs()">Fetch New Jobs</button>
       <button class="light" onclick="exportCsv()">Export CSV</button>
       <button class="light" onclick="openFacebookGroup()">Open Facebook Group</button>
+      <button class="light" onclick="autoPostToFacebookPage()">Auto Post to Page</button>
     </div>
     <div id="msg" class="muted"></div>
     <div id="jobs"></div>
@@ -71,7 +72,7 @@
       if(!r.ok){$('msg').textContent='Unable to load jobs.';return}
       const jobs=await r.json();
       $('msg').textContent=`Loaded ${jobs.length} jobs`;
-      $('jobs').innerHTML=jobs.map(j=>`<div class="card"><div class="grid"><div><div class="title">${esc(j.title)}</div><p>${esc(j.company)}<br>${esc(j.location)}<br><span class="pill">${esc(j.category)}</span> <span class="pill">${esc(j.source)}</span></p><p class="muted">${esc((j.description||'').slice(0,220))}</p><p><a href="${j.url}" target="_blank" rel="noopener">Open job link</a></p><button onclick="mark(${j.id},'posted')">Mark Posted</button> <button class="light" onclick="mark(${j.id},'skip')">Skip</button></div><div><textarea id="post${j.id}">${esc(j.post_text)}</textarea><br><button onclick="copyPost(${j.id})">Copy Facebook Post</button> <button onclick="copyAndOpen(${j.id})">Copy + Open Group</button> <button class="light" onclick="savePost(${j.id})">Save Edit</button></div></div></div>`).join('');
+      $('jobs').innerHTML=jobs.map(j=>`<div class="card"><div class="grid"><div><div class="title">${esc(j.title)}</div><p>${esc(j.company)}<br>${esc(j.location)}<br><span class="pill">${esc(j.category)}</span> <span class="pill">${esc(j.source)}</span>${j.facebook_posted_at?` <span class="pill">Page posted</span>`:''}</p><p class="muted">${esc((j.description||'').slice(0,220))}</p>${j.facebook_post_error?`<p class="muted">Facebook error: ${esc(j.facebook_post_error)}</p>`:''}<p><a href="${j.url}" target="_blank" rel="noopener">Open job link</a></p><button onclick="mark(${j.id},'posted')">Mark Posted</button> <button class="light" onclick="mark(${j.id},'skip')">Skip</button></div><div><textarea id="post${j.id}">${esc(j.post_text)}</textarea><br><button onclick="copyPost(${j.id})">Copy Facebook Post</button> <button onclick="copyAndOpen(${j.id})">Copy + Open Group</button> <button onclick="postToFacebookPage(${j.id})">Post to Page</button> <button class="light" onclick="savePost(${j.id})">Save Edit</button></div></div></div>`).join('');
     }
     function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
     async function mark(id,status){ await fetch(`/api/jobs/${id}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})}); loadJobs(); }
@@ -88,6 +89,20 @@
       await copyPost(id);
       openFacebookGroup();
       $('msg').textContent='Copied. Facebook group opened. Paste the post into the group composer.';
+    }
+    async function postToFacebookPage(id){
+      $('msg').textContent='Posting to Facebook Page...';
+      const r=await fetch(`/api/jobs/${id}/facebook-page`,{method:'POST',headers:{'Content-Type':'application/json'}});
+      const result=await r.json();
+      $('msg').textContent=result.ok?'Posted to Facebook Page.':`Facebook Page post failed: ${result.error||'Unknown error'}`;
+      loadJobs();
+    }
+    async function autoPostToFacebookPage(){
+      $('msg').textContent='Posting queued jobs to Facebook Page...';
+      const r=await fetch('/api/facebook-page/auto-post',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+      const result=await r.json();
+      $('msg').textContent=JSON.stringify(result);
+      loadJobs();
     }
     function exportCsv(){ location.href='/api/export.csv'; }
     loadJobs();

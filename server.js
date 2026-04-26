@@ -13,6 +13,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const FACEBOOK_GROUP_URL = process.env.FACEBOOK_GROUP_URL || 'https://www.facebook.com/groups/jobsinnewjersey';
+const FACEBOOK_GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v24.0';
+const FACEBOOK_PAGE_ID = process.env.FACEBOOK_PAGE_ID || '';
+const FACEBOOK_PAGE_ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || '';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -46,11 +49,17 @@ async function getDb() {
         date_posted TEXT,
         status TEXT DEFAULT 'new',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        post_text TEXT
+        post_text TEXT,
+        facebook_post_id TEXT,
+        facebook_posted_at TEXT,
+        facebook_post_error TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
       CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
       `);
+      ensureColumn(database, 'jobs', 'facebook_post_id', 'TEXT');
+      ensureColumn(database, 'jobs', 'facebook_posted_at', 'TEXT');
+      ensureColumn(database, 'jobs', 'facebook_post_error', 'TEXT');
       db = database;
       persistDb();
       return db;
@@ -78,12 +87,19 @@ function runSql(database, sql, params = []) {
   stmt.run(params);
   stmt.free();
 }
+function ensureColumn(database, table, column, type) {
+  const columns = queryAll(database, `PRAGMA table_info(${table})`);
+  if (columns.some(item => item.name === column)) return;
+  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
 
 const rssParser = new Parser({ timeout: 12000 });
 const keywords = (process.env.JOB_KEYWORDS || 'warehouse,data entry,customer service,office admin,clerical,receptionist,call center,driver,delivery,security,retail,no experience,entry level')
   .split(',').map(s => s.trim()).filter(Boolean);
 const fetchCron = process.env.FETCH_CRON || '0 * * * *';
 const newspaperFetchCron = process.env.NEWSPAPER_FETCH_CRON || '0 8,20 * * *';
+const facebookAutoPostCron = process.env.FACEBOOK_AUTO_POST_CRON || '15 * * * *';
+const facebookAutoPostLimit = Number(process.env.FACEBOOK_AUTO_POST_LIMIT || 3);
 const newspaperFeeds = (process.env.NEWSPAPER_RSS_FEEDS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const newspaperPages = (process.env.NEWSPAPER_PAGE_URLS || 'https://patch.com/new-jersey/across-nj/localjobs,https://jobs.nj.com/careers/jobsearch')
@@ -374,6 +390,72 @@ async function runFetch() {
   return results;
 }
 
+function facebookPageConfigured() {
+  return Boolean(FACEBOOK_PAGE_ID && FACEBOOK_PAGE_ACCESS_TOKEN);
+}
+
+async function postJobToFacebookPage(job) {
+  if (!facebookPageConfigured()) {
+    return { ok: false, error: 'missing FACEBOOK_PAGE_ID or FACEBOOK_PAGE_ACCESS_TOKEN' };
+  }
+
+  const body = new URLSearchParams({
+    access_token: FACEBOOK_PAGE_ACCESS_TOKEN,
+    message: job.post_text || buildPost(job)
+  });
+  if (job.url) body.set('link', job.url);
+
+  const res = await fetch(`https://graph.facebook.com/${FACEBOOK_GRAPH_VERSION}/${encodeURIComponent(FACEBOOK_PAGE_ID)}/feed`, {
+    method: 'POST',
+    body
+  });
+  const data = await res.json();
+  if (!res.ok) return { ok: false, error: data.error?.message || res.statusText, data };
+  return { ok: true, id: data.id, data };
+}
+
+async function markFacebookPostResult(jobId, result) {
+  const database = await getDb();
+  if (result.ok) {
+    runSql(database, 'UPDATE jobs SET facebook_post_id=?, facebook_posted_at=?, facebook_post_error=NULL WHERE id=?', [
+      result.id || '',
+      new Date().toISOString(),
+      jobId
+    ]);
+  } else {
+    runSql(database, 'UPDATE jobs SET facebook_post_error=? WHERE id=?', [
+      result.error || 'Unknown Facebook post error',
+      jobId
+    ]);
+  }
+  persistDb();
+}
+
+async function postJobByIdToFacebookPage(id) {
+  const database = await getDb();
+  const job = queryAll(database, 'SELECT * FROM jobs WHERE id=? LIMIT 1', [id])[0];
+  if (!job) return { ok: false, error: 'job not found' };
+  const result = await postJobToFacebookPage(job);
+  await markFacebookPostResult(job.id, result);
+  return { jobId: job.id, title: job.title, ...result };
+}
+
+async function runFacebookAutoPost(limit = facebookAutoPostLimit) {
+  if (!facebookPageConfigured()) {
+    return { source: 'facebook-page', posted: 0, skipped: 'missing page id or token' };
+  }
+  const database = await getDb();
+  const jobs = queryAll(database, `SELECT * FROM jobs
+    WHERE status='new' AND facebook_posted_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT ?`, [Math.max(1, Number(limit) || 1)]);
+  const results = [];
+  for (const job of jobs) {
+    results.push(await postJobByIdToFacebookPage(job.id));
+  }
+  return { source: 'facebook-page', posted: results.filter(item => item.ok).length, checked: jobs.length, results };
+}
+
 function requireAdmin(req,res,next){
   const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
   const pass = req.headers['x-admin-password'] || req.query.password;
@@ -383,7 +465,12 @@ function requireAdmin(req,res,next){
 
 app.post('/api/fetch', requireAdmin, async (req,res)=> res.json({ results: await runFetch() }));
 app.post('/api/fetch-newspapers', requireAdmin, async (req,res)=> res.json({ results: await runNewspaperFetch() }));
-app.get('/api/config', requireAdmin, (req,res)=> res.json({ facebookGroupUrl: FACEBOOK_GROUP_URL }));
+app.get('/api/config', requireAdmin, (req,res)=> res.json({
+  facebookGroupUrl: FACEBOOK_GROUP_URL,
+  facebookPageConfigured: facebookPageConfigured(),
+  facebookAutoPostLimit,
+  facebookAutoPostCron
+}));
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const status = req.query.status || 'new';
@@ -402,6 +489,8 @@ app.post('/api/jobs/:id/post', requireAdmin, async (req,res)=>{
   persistDb();
   res.json({ ok:true });
 });
+app.post('/api/jobs/:id/facebook-page', requireAdmin, async (req,res)=> res.json(await postJobByIdToFacebookPage(req.params.id)));
+app.post('/api/facebook-page/auto-post', requireAdmin, async (req,res)=> res.json(await runFacebookAutoPost(req.body?.limit || facebookAutoPostLimit)));
 app.get('/api/export.csv', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const rows = queryAll(database, 'SELECT title,company,location,salary,category,url,status,created_at,post_text FROM jobs ORDER BY created_at DESC');
@@ -414,11 +503,12 @@ if (require.main === module) {
   getDb().then(() => {
     cron.schedule(fetchCron, () => runFetch().catch(console.error));
     cron.schedule(newspaperFetchCron, () => runNewspaperFetch().catch(console.error));
-    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}; newspaper schedule: ${newspaperFetchCron}`));
+    if (facebookPageConfigured()) cron.schedule(facebookAutoPostCron, () => runFacebookAutoPost().catch(console.error));
+    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}; newspaper schedule: ${newspaperFetchCron}; facebook page schedule: ${facebookPageConfigured() ? facebookAutoPostCron : 'disabled'}`));
   }).catch(err => {
     console.error('Failed to initialize database', err);
     process.exit(1);
   });
 }
 
-module.exports = { app, runFetch, runNewspaperFetch, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };
+module.exports = { app, runFetch, runNewspaperFetch, runFacebookAutoPost, postJobByIdToFacebookPage, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };

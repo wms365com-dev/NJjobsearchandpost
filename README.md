@@ -75,6 +75,18 @@ Meta removed third-party publishing support for Facebook Groups, so this app doe
 FACEBOOK_GROUP_URL=https://www.facebook.com/groups/jobsinnewjersey
 ```
 
+## Facebook Page Auto-Posting
+Facebook Groups cannot be auto-posted through Meta's official API anymore, but Facebook Pages can. Create or use a Facebook Page for the automated job feed, then add these Railway variables:
+```bash
+FACEBOOK_PAGE_ID=your-page-id
+FACEBOOK_PAGE_ACCESS_TOKEN=your-page-access-token
+FACEBOOK_GRAPH_VERSION=v24.0
+FACEBOOK_AUTO_POST_CRON=15 * * * *
+FACEBOOK_AUTO_POST_LIMIT=3
+```
+
+With those set, the app posts up to `FACEBOOK_AUTO_POST_LIMIT` unposted jobs to the Page on the schedule. Jobs already posted to the Page are tracked with `facebook_posted_at` and will not be posted again.
+
 ## Custom Job Keywords
 Set this environment variable:
 ```bash
