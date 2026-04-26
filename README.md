@@ -104,5 +104,7 @@ Set:
 EXTRA_RSS_FEEDS=https://example.com/jobs/rss,https://another-site.com/feed
 ```
 
+The built-in RSS feeds are NJLM municipal jobs/classifieds feeds. They may legitimately return zero jobs when NJLM has no current RSS items. The dashboard source panel shows configured keys and saved job counts by source.
+
 ## Important
 Do not scrape websites aggressively or automate Facebook login/posting with a bot. Use APIs, RSS feeds, and manual review to avoid account restrictions.

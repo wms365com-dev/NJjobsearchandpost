@@ -39,6 +39,7 @@
       <button class="light" onclick="openFacebookGroup()">Open Facebook Group</button>
       <button class="light" onclick="autoPostToFacebookPage()">Auto Post to Page</button>
     </div>
+    <div id="sourceStatus" class="card muted"></div>
     <div id="msg" class="muted"></div>
     <div id="jobs"></div>
   </div>
@@ -65,7 +66,15 @@
       $('msg').textContent='Fetching...';
       const r=await fetch('/api/fetch',{method:'POST',headers:{'Content-Type':'application/json'}});
       $('msg').textContent=JSON.stringify(await r.json());
+      loadSourceStatus();
       loadJobs();
+    }
+    async function loadSourceStatus(){
+      const [configRes, countsRes]=await Promise.all([fetch('/api/config'),fetch('/api/source-counts')]);
+      const config=configRes.ok?await configRes.json():{};
+      const counts=countsRes.ok?await countsRes.json():[];
+      const sourceCounts=counts.length?counts.map(row=>`${esc(row.source)}: ${row.count}`).join(' | '):'No saved jobs yet';
+      $('sourceStatus').innerHTML=`<strong>Sources</strong><br>Jooble: ${config.joobleConfigured?'configured':'missing key'} | Adzuna: ${config.adzunaConfigured?'configured':'missing keys'} | USAJOBS: ${config.usajobsConfigured?'configured':'missing keys'} | Facebook Page: ${config.facebookPageConfigured?'configured':'not configured'}<br>Saved jobs by source: ${sourceCounts}<br>RSS feeds: ${(config.defaultRssFeeds||[]).length+(config.extraRssFeeds||[]).length}`;
     }
     async function loadJobs(){
       const r=await fetch('/api/jobs?status='+encodeURIComponent($('status').value));
@@ -105,6 +114,7 @@
       loadJobs();
     }
     function exportCsv(){ location.href='/api/export.csv'; }
+    loadSourceStatus();
     loadJobs();
   </script>
 </body>

@@ -104,6 +104,11 @@ const newspaperFeeds = (process.env.NEWSPAPER_RSS_FEEDS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const newspaperPages = (process.env.NEWSPAPER_PAGE_URLS || 'https://patch.com/new-jersey/across-nj/localjobs,https://jobs.nj.com/careers/jobsearch')
   .split(',').map(s => s.trim()).filter(Boolean);
+const defaultRssFeeds = [
+  'https://www.njlm.org/RSSFeed.aspx?CID=All-0&CommunityJobs=False&ModID=66',
+  'https://www.njlm.org/RSSFeed.aspx?CID=Classifieds-100&CommunityJobs=False&ModID=66'
+];
+const extraRssFeeds = (process.env.EXTRA_RSS_FEEDS || '').split(',').map(s=>s.trim()).filter(Boolean);
 const pullTitleKeywords = (process.env.PULL_TITLE_KEYWORDS || 'warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const excludedTitlePattern = /\b(senior|principal|engineer|developer|software|cloud|devops|architect|scientist)\b/i;
@@ -279,10 +284,7 @@ async function fetchTheMuse() {
 }
 
 async function fetchRSS() {
-  const feeds = [
-    'https://www.njlm.org/RSSFeed.aspx?ModID=7&CID=All-government-jobs-4',
-    ...(process.env.EXTRA_RSS_FEEDS || '').split(',').map(s=>s.trim()).filter(Boolean)
-  ];
+  const feeds = [...defaultRssFeeds, ...extraRssFeeds];
   let added = 0, results = [];
   for (const feed of feeds) {
     try {
@@ -469,13 +471,27 @@ app.get('/api/config', requireAdmin, (req,res)=> res.json({
   facebookGroupUrl: FACEBOOK_GROUP_URL,
   facebookPageConfigured: facebookPageConfigured(),
   facebookAutoPostLimit,
-  facebookAutoPostCron
+  facebookAutoPostCron,
+  joobleConfigured: Boolean(process.env.JOOBLE_API_KEY),
+  adzunaConfigured: Boolean(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
+  usajobsConfigured: Boolean(process.env.USAJOBS_USER_AGENT && process.env.USAJOBS_AUTH_KEY),
+  defaultRssFeeds,
+  extraRssFeeds,
+  newspaperFeeds,
+  newspaperPages
 }));
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const status = req.query.status || 'new';
   const rows = queryAll(database, 'SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC LIMIT 300', [status]);
   res.json(rows);
+});
+app.get('/api/source-counts', requireAdmin, async (req,res)=>{
+  const database = await getDb();
+  res.json(queryAll(database, `SELECT source, COUNT(*) AS count
+    FROM jobs
+    GROUP BY source
+    ORDER BY count DESC`));
 });
 app.post('/api/jobs/:id/status', requireAdmin, async (req,res)=>{
   const database = await getDb();
