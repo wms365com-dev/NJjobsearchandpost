@@ -32,12 +32,14 @@ The app can run with only RSS feeds, but the best results for warehouse, custome
 3. Add a volume mounted to `/data`.
 4. Set environment variables:
    - `DATA_DIR=/data`
-   - `ADMIN_PASSWORD=your-strong-password`
+   - Optional: `ADMIN_PASSWORD=your-strong-password`
    - Optional: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`
    - Optional: `USAJOBS_USER_AGENT`, `USAJOBS_AUTH_KEY`
 5. Deploy.
 
 Railway will run `npm start`. Job records are saved to a SQLite database file at `$DATA_DIR/jobs.db`; with `DATA_DIR=/data`, that file stays on the Railway volume across deploys.
+
+Leave `ADMIN_PASSWORD` blank if you do not want the dashboard to require a password.
 
 ## Recommended Facebook Workflow
 1. Click **Fetch New Jobs**.

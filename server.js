@@ -183,8 +183,9 @@ async function runFetch() {
 }
 
 function requireAdmin(req,res,next){
+  const configuredPassword = (process.env.ADMIN_PASSWORD || '').trim();
   const pass = req.headers['x-admin-password'] || req.query.password;
-  if (!process.env.ADMIN_PASSWORD || pass === process.env.ADMIN_PASSWORD) return next();
+  if (!configuredPassword || pass === configuredPassword) return next();
   res.status(401).json({ error:'Admin password required' });
 }
 
