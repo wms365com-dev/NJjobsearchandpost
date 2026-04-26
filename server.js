@@ -163,6 +163,24 @@ function buildLocationHashtags(location='') {
   const city = raw.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, '');
   return city ? [`#${city}Jobs`, `#${city}NJ`] : ['#NJ'];
 }
+function parseDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function getJobAge(job) {
+  const date = parseDate(job.date_posted) || parseDate(job.created_at);
+  if (!date) return { label: 'Age unknown', days: null, source: '' };
+  const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+  const source = job.date_posted ? 'posted' : 'saved';
+  if (days === 0) return { label: `Today (${source})`, days, source };
+  if (days === 1) return { label: `1 day old (${source})`, days, source };
+  return { label: `${days} days old (${source})`, days, source };
+}
+function decorateJob(job) {
+  const age = getJobAge(job);
+  return { ...job, age_label: age.label, age_days: age.days, age_source: age.source };
+}
 function shouldPullJob(title='', desc='') {
   const normalizedTitle = String(title || '').toLowerCase();
   const normalizedDesc = String(desc || '').toLowerCase();
@@ -517,7 +535,7 @@ app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const rows = status === 'all'
     ? queryAll(database, 'SELECT * FROM jobs ORDER BY created_at DESC LIMIT 300')
     : queryAll(database, 'SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC LIMIT 300', [status]);
-  res.json(rows);
+  res.json(rows.map(decorateJob));
 });
 app.get('/api/source-counts', requireAdmin, async (req,res)=>{
   const database = await getDb();
