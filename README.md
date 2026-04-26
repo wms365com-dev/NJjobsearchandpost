@@ -41,6 +41,8 @@ The app can run with only RSS feeds, but the best results for warehouse, custome
 
 Railway will run `npm start`. Job records are saved to a SQLite database file at `$DATA_DIR/jobs.db`; with `DATA_DIR=/data`, that file stays on the Railway volume across deploys.
 
+The dashboard defaults to showing **all** saved jobs. Fetching jobs only inserts new, non-duplicate jobs and does not clear old jobs.
+
 For your Railway setup, leave `ADMIN_PASSWORD` blank or delete the variable entirely so the dashboard does not require a password.
 
 The app runs a background pull every hour by default:

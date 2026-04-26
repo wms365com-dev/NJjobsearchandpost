@@ -508,8 +508,10 @@ app.get('/api/config', requireAdmin, (req,res)=> res.json({
 }));
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
-  const status = req.query.status || 'new';
-  const rows = queryAll(database, 'SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC LIMIT 300', [status]);
+  const status = req.query.status || 'all';
+  const rows = status === 'all'
+    ? queryAll(database, 'SELECT * FROM jobs ORDER BY created_at DESC LIMIT 300')
+    : queryAll(database, 'SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC LIMIT 300', [status]);
   res.json(rows);
 });
 app.get('/api/source-counts', requireAdmin, async (req,res)=>{
