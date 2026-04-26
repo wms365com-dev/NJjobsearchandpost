@@ -102,7 +102,7 @@ Facebook post hashtags can be customized with:
 ```bash
 POST_HASHTAGS=#NewJerseyJobs #NJJobs #NowHiring #JobsInNewJersey #HiringNJ
 ```
-The app also adds category hashtags such as `#WarehouseJobs`, `#DataEntryJobs`, and `#CustomerServiceJobs` when they match the job.
+The app also adds location and work-type hashtags such as `#EdisonJobs`, `#EdisonNJ`, `#WarehouseJobs`, `#DataEntryJobs`, `#CustomerServiceJobs`, `#PartTimeJobs`, and `#RemoteJobs` when they match the job.
 
 ## Add More RSS Feeds
 Set:

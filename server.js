@@ -138,14 +138,25 @@ function buildPost(job) {
 function buildHashtags(job) {
   const category = String(job.category || '').toLowerCase();
   const title = String(job.title || '').toLowerCase();
-  const tags = [...defaultHashtags];
+  const location = String(job.location || '').toLowerCase();
+  const tags = [...defaultHashtags, ...buildLocationHashtags(job.location)];
   if (/warehouse|picker|packer|forklift|shipping|receiving/.test(`${category} ${title}`)) tags.push('#WarehouseJobs', '#WarehouseHiring');
   if (/data entry|clerical|office|admin|reception/.test(`${category} ${title}`)) tags.push('#DataEntryJobs', '#OfficeJobs');
   if (/customer service|call center|csr/.test(`${category} ${title}`)) tags.push('#CustomerServiceJobs');
   if (/driver|delivery|cdl/.test(`${category} ${title}`)) tags.push('#DriverJobs', '#DeliveryJobs');
   if (/retail|cashier|stock/.test(`${category} ${title}`)) tags.push('#RetailJobs');
   if (/security|guard/.test(`${category} ${title}`)) tags.push('#SecurityJobs');
+  if (/part.time|part time/.test(`${title} ${category}`)) tags.push('#PartTimeJobs');
+  if (/full.time|full time/.test(`${title} ${category}`)) tags.push('#FullTimeJobs');
+  if (/remote|work from home/.test(`${title} ${location}`)) tags.push('#RemoteJobs', '#WorkFromHome');
+  if (/new jersey|\bnj\b/.test(location)) tags.push('#NewJersey');
   return [...new Set(tags)].join(' ');
+}
+function buildLocationHashtags(location='') {
+  const raw = String(location || '').split(',')[0].trim();
+  if (!raw || /^new jersey$/i.test(raw)) return ['#NJ'];
+  const city = raw.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, '');
+  return city ? [`#${city}Jobs`, `#${city}NJ`] : ['#NJ'];
 }
 function shouldPullJob(title='', desc='') {
   const normalizedTitle = String(title || '').toLowerCase();
