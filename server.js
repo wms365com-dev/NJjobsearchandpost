@@ -12,6 +12,7 @@ const cheerio = require('cheerio');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const FACEBOOK_GROUP_URL = process.env.FACEBOOK_GROUP_URL || 'https://www.facebook.com/groups/jobsinnewjersey';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -382,6 +383,7 @@ function requireAdmin(req,res,next){
 
 app.post('/api/fetch', requireAdmin, async (req,res)=> res.json({ results: await runFetch() }));
 app.post('/api/fetch-newspapers', requireAdmin, async (req,res)=> res.json({ results: await runNewspaperFetch() }));
+app.get('/api/config', requireAdmin, (req,res)=> res.json({ facebookGroupUrl: FACEBOOK_GROUP_URL }));
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const status = req.query.status || 'new';

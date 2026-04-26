@@ -66,9 +66,14 @@ Prefer RSS feeds when a newspaper offers them. Keep page scraping to a short lis
 1. Click **Fetch New Jobs**.
 2. Review jobs.
 3. Edit post text if needed.
-4. Click **Copy Facebook Post**.
-5. Paste into your Facebook group or Meta Business Suite.
+4. Click **Copy + Open Group**.
+5. Paste into your Facebook group composer.
 6. Mark as posted.
+
+Meta removed third-party publishing support for Facebook Groups, so this app does not auto-post into groups. It prepares the post, copies it, and opens your group:
+```bash
+FACEBOOK_GROUP_URL=https://www.facebook.com/groups/jobsinnewjersey
+```
 
 ## Custom Job Keywords
 Set this environment variable:
