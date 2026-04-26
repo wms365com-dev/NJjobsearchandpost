@@ -12,7 +12,7 @@ It collects NJ job leads, creates Facebook-ready posts, and lets you manually co
 - Review dashboard: copy, edit, mark posted, skip.
 - SQLite database stored in `/data` or your Railway volume.
 - CSV export.
-- Cron fetch every 3 hours.
+- Hourly job pulls by default.
 
 ## Local Setup
 ```bash
@@ -41,6 +41,16 @@ Railway will run `npm start`. Job records are saved to a SQLite database file at
 
 Leave `ADMIN_PASSWORD` blank if you do not want the dashboard to require a password.
 
+The app runs a background pull every hour by default:
+```bash
+FETCH_CRON=0 * * * *
+```
+
+Use cron syntax to change it. For example, every 30 minutes:
+```bash
+FETCH_CRON=*/30 * * * *
+```
+
 ## Recommended Facebook Workflow
 1. Click **Fetch New Jobs**.
 2. Review jobs.
@@ -53,6 +63,11 @@ Leave `ADMIN_PASSWORD` blank if you do not want the dashboard to require a passw
 Set this environment variable:
 ```bash
 JOB_KEYWORDS=warehouse,data entry,customer service,office admin,clerical,receptionist,call center,driver,delivery,security,retail,no experience,entry level
+```
+
+For sources that return broad results, `PULL_TITLE_KEYWORDS` controls which jobs get saved:
+```bash
+PULL_TITLE_KEYWORDS=warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker
 ```
 
 ## Add More RSS Feeds

@@ -80,6 +80,10 @@ function runSql(database, sql, params = []) {
 const rssParser = new Parser({ timeout: 12000 });
 const keywords = (process.env.JOB_KEYWORDS || 'warehouse,data entry,customer service,office admin,clerical,receptionist,call center,driver,delivery,security,retail,no experience,entry level')
   .split(',').map(s => s.trim()).filter(Boolean);
+const fetchCron = process.env.FETCH_CRON || '0 * * * *';
+const pullTitleKeywords = (process.env.PULL_TITLE_KEYWORDS || 'warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const excludedTitlePattern = /\b(senior|principal|engineer|developer|software|cloud|devops|architect|scientist)\b/i;
 
 function clean(s='') { return String(s).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
 function detectCategory(title='', desc='') {
@@ -99,6 +103,12 @@ function buildPost(job) {
   const salary = job.salary ? `\nPay: ${job.salary}` : '';
   const footer = process.env.POST_FOOTER || 'Follow New Jersey Jobs for daily hiring updates.';
   return `NOW HIRING - NEW JERSEY\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || 'New Jersey'}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}`;
+}
+function shouldPullJob(title='', desc='') {
+  const normalizedTitle = String(title || '').toLowerCase();
+  const normalizedDesc = String(desc || '').toLowerCase();
+  if (excludedTitlePattern.test(normalizedTitle)) return false;
+  return pullTitleKeywords.some(keyword => normalizedTitle.includes(keyword) || normalizedDesc.includes(keyword));
 }
 async function upsertJob(job) {
   const database = await getDb();
@@ -154,6 +164,44 @@ async function fetchUSAJobs() {
   return { source: 'usajobs', added };
 }
 
+async function fetchTheMuse() {
+  let added = 0;
+  let checked = 0;
+
+  for (let page = 1; page <= 3; page++) {
+    const url = `https://www.themuse.com/api/public/jobs?page=${page}&location=${encodeURIComponent('New Jersey')}`;
+    const res = await fetch(url);
+    if (!res.ok) return { source: 'themuse', added, checked, error: res.statusText };
+
+    const data = await res.json();
+    const jobs = data.results || [];
+    checked += jobs.length;
+
+    for (const j of jobs) {
+      const description = clean(j.contents || '').slice(0, 500);
+      if (!shouldPullJob(j.name, description)) continue;
+
+      const locations = (j.locations || []).map(location => location.name).join(', ') || 'New Jersey';
+      const company = j.company?.name || '';
+      const url = j.refs?.landing_page || j.refs?.landingPage || '';
+
+      if (await upsertJob({
+        source: 'The Muse',
+        external_id: `themuse:${j.id}`,
+        title: j.name || 'Job Opening',
+        company,
+        location: locations,
+        salary: '',
+        description,
+        url,
+        date_posted: j.publication_date || ''
+      })) added++;
+    }
+  }
+
+  return { source: 'themuse', added, checked };
+}
+
 async function fetchRSS() {
   const feeds = [
     'https://www.njlm.org/RSSFeed.aspx?ModID=7&CID=All-government-jobs-4',
@@ -176,6 +224,7 @@ async function fetchRSS() {
 
 async function runFetch() {
   const results = [];
+  results.push(await fetchTheMuse());
   results.push(await fetchRSS());
   results.push(await fetchAdzuna());
   results.push(await fetchUSAJobs());
@@ -218,12 +267,12 @@ app.get('*', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html'))
 
 if (require.main === module) {
   getDb().then(() => {
-    cron.schedule('0 */3 * * *', () => runFetch().catch(console.error));
-    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}`));
+    cron.schedule(fetchCron, () => runFetch().catch(console.error));
+    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}`));
   }).catch(err => {
     console.error('Failed to initialize database', err);
     process.exit(1);
   });
 }
 
-module.exports = { app, runFetch, buildPost, detectCategory, getDb };
+module.exports = { app, runFetch, buildPost, detectCategory, getDb, fetchTheMuse, shouldPullJob };
