@@ -81,7 +81,7 @@
       if(!r.ok){$('msg').textContent='Unable to load jobs.';return}
       const jobs=await r.json();
       $('msg').textContent=`Loaded ${jobs.length} jobs`;
-      $('jobs').innerHTML=jobs.map(j=>`<div class="card"><div class="grid"><div><div class="title">${esc(j.title)}</div><p>${esc(j.company)}<br>${esc(j.location)}<br><span class="pill">${esc(j.category)}</span> <span class="pill">${esc(j.source)}</span>${j.facebook_posted_at?` <span class="pill">Page posted</span>`:''}</p><p class="muted">${esc((j.description||'').slice(0,220))}</p>${j.facebook_post_error?`<p class="muted">Facebook error: ${esc(j.facebook_post_error)}</p>`:''}<p><a href="${j.url}" target="_blank" rel="noopener">Open job link</a></p><button onclick="mark(${j.id},'posted')">Mark Posted</button> <button class="light" onclick="mark(${j.id},'skip')">Skip</button></div><div><textarea id="post${j.id}">${esc(j.post_text)}</textarea><br><button onclick="copyPost(${j.id})">Copy Facebook Post</button> <button onclick="copyAndOpen(${j.id})">Copy + Open Group</button> <button onclick="postToFacebookPage(${j.id})">Post to Page</button> <button class="light" onclick="refreshPost(${j.id})">Add Hashtags</button> <button class="light" onclick="savePost(${j.id})">Save Edit</button></div></div></div>`).join('');
+      $('jobs').innerHTML=jobs.map(j=>`<div class="card"><div class="grid"><div><div class="title">${esc(j.title)}</div><p>${esc(j.company)}<br>${esc(j.location)}<br><span class="pill">${esc(j.category)}</span> <span class="pill">${esc(j.source)}</span>${j.facebook_posted_at?` <span class="pill">Page posted</span>`:''}</p><p class="muted">${esc((j.description||'').slice(0,220))}</p>${j.facebook_post_error?`<p class="muted">Facebook error: ${esc(j.facebook_post_error)}</p>`:''}<p><a href="${j.url}" target="_blank" rel="noopener">Open job link</a></p><button onclick="mark(${j.id},'posted')">Mark Posted</button> <button class="light" onclick="mark(${j.id},'skip')">Skip</button></div><div><textarea id="post${j.id}">${esc(j.post_text)}</textarea><br><button onclick="copyPost(${j.id})">Copy Full Post</button> <button onclick="copyLinkPreviewPost(${j.id})">Copy Link Preview</button> <button onclick="copyAndOpen(${j.id})">Copy + Open Group</button> <button onclick="postToFacebookPage(${j.id})">Post to Page</button> <button class="light" onclick="refreshPost(${j.id})">Add Hashtags</button> <button class="light" onclick="savePost(${j.id})">Save Edit</button></div></div></div>`).join('');
     }
     function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
     async function mark(id,status){ await fetch(`/api/jobs/${id}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})}); loadJobs(); }
@@ -94,6 +94,10 @@
     }
     async function copyPost(id){
       const text=$('post'+id).value.replace(/\r?\n/g,'\r\n');
+      await copyText(text);
+      $('msg').textContent='Copied with line breaks. Paste into Facebook group or Meta Business Suite.';
+    }
+    async function copyText(text){
       const html=esc(text).replace(/\r\n/g,'<br>');
       try{
         if(window.ClipboardItem){
@@ -117,7 +121,12 @@
         document.execCommand('copy');
         ta.remove();
       }
-      $('msg').textContent='Copied with line breaks. Paste into Facebook group or Meta Business Suite.';
+    }
+    async function copyLinkPreviewPost(id){
+      const r=await fetch(`/api/jobs/${id}/link-preview-post`);
+      const result=await r.json();
+      await copyText(String(result.post_text||'').replace(/\r?\n/g,'\r\n'));
+      $('msg').textContent='Copied link-preview post. Paste into Facebook and wait for the card preview.';
     }
     async function getFacebookGroupUrl(){
       const r=await fetch('/api/config');

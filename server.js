@@ -135,6 +135,11 @@ function buildPost(job) {
   const hashtags = buildHashtags(job);
   return `NOW HIRING - NEW JERSEY\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || 'New Jersey'}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}\n\n${hashtags}`;
 }
+function buildLinkPreviewPost(job) {
+  const salary = job.salary ? `\n${job.salary}` : '';
+  const hashtags = buildHashtags(job);
+  return `${job.url || ''}\n\n${job.title || 'Job Opening'}\n${job.company || 'Company not listed'}\n${job.location || 'New Jersey'}${salary}\n\n${hashtags}`.trim();
+}
 function buildHashtags(job) {
   const category = String(job.category || '').toLowerCase();
   const title = String(job.title || '').toLowerCase();
@@ -542,6 +547,12 @@ app.post('/api/jobs/:id/refresh-post', requireAdmin, async (req,res)=>{
   persistDb();
   res.json({ ok:true, post_text: postText });
 });
+app.get('/api/jobs/:id/link-preview-post', requireAdmin, async (req,res)=>{
+  const database = await getDb();
+  const job = queryAll(database, 'SELECT * FROM jobs WHERE id=? LIMIT 1', [req.params.id])[0];
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  res.json({ post_text: buildLinkPreviewPost(job) });
+});
 app.post('/api/jobs/:id/facebook-page', requireAdmin, async (req,res)=> res.json(await postJobByIdToFacebookPage(req.params.id)));
 app.post('/api/facebook-page/auto-post', requireAdmin, async (req,res)=> res.json(await runFacebookAutoPost(req.body?.limit || facebookAutoPostLimit)));
 app.get('/api/export.csv', requireAdmin, async (req,res)=>{
@@ -564,4 +575,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, runFetch, runNewspaperFetch, runFacebookAutoPost, postJobByIdToFacebookPage, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };
+module.exports = { app, runFetch, runNewspaperFetch, runFacebookAutoPost, postJobByIdToFacebookPage, buildPost, buildLinkPreviewPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };

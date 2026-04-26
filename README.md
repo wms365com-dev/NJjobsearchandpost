@@ -68,7 +68,7 @@ Prefer RSS feeds when a newspaper offers them. Keep page scraping to a short lis
 1. Click **Fetch New Jobs**.
 2. Review jobs.
 3. Edit post text if needed.
-4. Click **Copy + Open Group**.
+4. Click **Copy Link Preview** for a Facebook card-style post, or **Copy Full Post** for detailed text.
 5. Paste into your Facebook group composer.
 6. Mark as posted.
 
