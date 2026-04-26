@@ -49,7 +49,16 @@ For your Railway setup, leave `ADMIN_PASSWORD` blank or delete the variable enti
 The app runs a background pull every hour by default:
 ```bash
 FETCH_CRON=0 * * * *
+FETCH_PROFILE_IDS=nj,mississauga
 ```
+
+The built-in location menu includes:
+```text
+NJ Job Auto Poster -> New Jersey
+Mississauga Job Auto Poster -> Mississauga, Ontario, Canada
+```
+
+Advanced: override the menu with `LOCATION_PROFILES_JSON` if you want more cities later.
 
 Use cron syntax to change it. For example, every 30 minutes:
 ```bash

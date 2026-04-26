@@ -18,6 +18,22 @@ const FACEBOOK_PAGE_ID = process.env.FACEBOOK_PAGE_ID || '';
 const FACEBOOK_PAGE_ACCESS_TOKEN = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || '';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
+const defaultLocationProfiles = [
+  { id: 'nj', label: 'NJ Job Auto Poster', location: 'New Jersey', regionLabel: 'NEW JERSEY', country: 'us' },
+  { id: 'mississauga', label: 'Mississauga Job Auto Poster', location: 'Mississauga, Ontario, Canada', regionLabel: 'MISSISSAUGA, ONTARIO', country: 'ca' }
+];
+function getLocationProfiles() {
+  try {
+    const parsed = JSON.parse(process.env.LOCATION_PROFILES_JSON || '');
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch {}
+  return defaultLocationProfiles;
+}
+const locationProfiles = getLocationProfiles();
+function getLocationProfile(idOrLocation) {
+  return locationProfiles.find(p => p.id === idOrLocation || p.location === idOrLocation) || locationProfiles[0];
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -50,6 +66,7 @@ async function getDb() {
         status TEXT DEFAULT 'new',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         post_text TEXT,
+        search_location TEXT,
         facebook_post_id TEXT,
         facebook_posted_at TEXT,
         facebook_post_error TEXT
@@ -60,6 +77,8 @@ async function getDb() {
       ensureColumn(database, 'jobs', 'facebook_post_id', 'TEXT');
       ensureColumn(database, 'jobs', 'facebook_posted_at', 'TEXT');
       ensureColumn(database, 'jobs', 'facebook_post_error', 'TEXT');
+      ensureColumn(database, 'jobs', 'search_location', 'TEXT');
+      database.exec(`UPDATE jobs SET search_location='New Jersey' WHERE search_location IS NULL OR search_location=''`);
       db = database;
       persistDb();
       return db;
@@ -100,6 +119,7 @@ const fetchCron = process.env.FETCH_CRON || '0 * * * *';
 const newspaperFetchCron = process.env.NEWSPAPER_FETCH_CRON || '0 8,20 * * *';
 const facebookAutoPostCron = process.env.FACEBOOK_AUTO_POST_CRON || '15 * * * *';
 const facebookAutoPostLimit = Number(process.env.FACEBOOK_AUTO_POST_LIMIT || 3);
+const fetchProfileIds = (process.env.FETCH_PROFILE_IDS || 'nj,mississauga').split(',').map(s => s.trim()).filter(Boolean);
 const newspaperFeeds = (process.env.NEWSPAPER_RSS_FEEDS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 const newspaperPages = (process.env.NEWSPAPER_PAGE_URLS || 'https://patch.com/new-jersey/across-nj/localjobs,https://jobs.nj.com/careers/jobsearch')
@@ -133,7 +153,8 @@ function buildPost(job) {
   const salary = job.salary ? `\nPay: ${job.salary}` : '';
   const footer = process.env.POST_FOOTER || 'Follow New Jersey Jobs for daily hiring updates.';
   const hashtags = buildHashtags(job);
-  return `NOW HIRING - NEW JERSEY\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || 'New Jersey'}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}\n\n${hashtags}`;
+  const profile = getLocationProfile(job.search_location || job.location);
+  return `NOW HIRING - ${profile.regionLabel || profile.location.toUpperCase()}\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || profile.location}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}\n\n${hashtags}`;
 }
 function buildLinkPreviewPost(job) {
   const salary = job.salary ? `\n${job.salary}` : '';
@@ -144,7 +165,11 @@ function buildHashtags(job) {
   const category = String(job.category || '').toLowerCase();
   const title = String(job.title || '').toLowerCase();
   const location = String(job.location || '').toLowerCase();
-  const tags = [...defaultHashtags, ...buildLocationHashtags(job.location)];
+  const locationText = `${job.location || ''} ${job.search_location || ''}`.toLowerCase();
+  const baseTags = /mississauga|ontario|canada|\bon\b/.test(locationText)
+    ? defaultHashtags.filter(tag => !/newjersey|njjobs|jobsinnewjersey|hiringnj/i.test(tag))
+    : defaultHashtags;
+  const tags = [...baseTags, ...buildLocationHashtags(job.location || job.search_location)];
   if (/warehouse|picker|packer|forklift|shipping|receiving/.test(`${category} ${title}`)) tags.push('#WarehouseJobs', '#WarehouseHiring');
   if (/data entry|clerical|office|admin|reception/.test(`${category} ${title}`)) tags.push('#DataEntryJobs', '#OfficeJobs');
   if (/customer service|call center|csr/.test(`${category} ${title}`)) tags.push('#CustomerServiceJobs');
@@ -155,13 +180,19 @@ function buildHashtags(job) {
   if (/full.time|full time/.test(`${title} ${category}`)) tags.push('#FullTimeJobs');
   if (/remote|work from home/.test(`${title} ${location}`)) tags.push('#RemoteJobs', '#WorkFromHome');
   if (/new jersey|\bnj\b/.test(location)) tags.push('#NewJersey');
+  if (/mississauga/.test(location)) tags.push('#MississaugaJobs', '#MississaugaHiring');
+  if (/ontario|\bon\b/.test(location)) tags.push('#OntarioJobs');
+  if (/canada/.test(location)) tags.push('#CanadaJobs');
   return [...new Set(tags)].join(' ');
 }
 function buildLocationHashtags(location='') {
-  const raw = String(location || '').split(',')[0].trim();
+  const full = String(location || '');
+  const raw = full.split(',')[0].trim();
   if (!raw || /^new jersey$/i.test(raw)) return ['#NJ'];
   const city = raw.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, '');
-  return city ? [`#${city}Jobs`, `#${city}NJ`] : ['#NJ'];
+  if (!city) return ['#NJ'];
+  if (/ontario|canada|\bon\b/i.test(full)) return [`#${city}Jobs`, `#${city}ON`];
+  return [`#${city}Jobs`, `#${city}NJ`];
 }
 function parseDate(value) {
   if (!value) return null;
@@ -198,11 +229,11 @@ async function upsertJob(job) {
   const database = await getDb();
   const external_id = job.external_id || `${job.source}:${job.url}`;
   const existing = queryAll(database, 'SELECT id FROM jobs WHERE external_id=?', [external_id])[0];
-  const record = { ...job, external_id, category: job.category || detectCategory(job.title, job.description) };
+  const record = { ...job, external_id, search_location: job.search_location || getLocationProfile().location, category: job.category || detectCategory(job.title, job.description) };
   record.post_text = buildPost(record);
   if (existing) return false;
-  runSql(database, `INSERT INTO jobs (source,external_id,title,company,location,salary,description,url,category,date_posted,post_text)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [
+  runSql(database, `INSERT INTO jobs (source,external_id,title,company,location,salary,description,url,category,date_posted,post_text,search_location)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [
       record.source,
       record.external_id,
       record.title,
@@ -213,42 +244,45 @@ async function upsertJob(job) {
       record.url,
       record.category,
       record.date_posted,
-      record.post_text
+      record.post_text,
+      record.search_location
     ]);
   persistDb();
   return true;
 }
 
-async function fetchAdzuna() {
+async function fetchAdzuna(profile = getLocationProfile()) {
   const id = process.env.ADZUNA_APP_ID, key = process.env.ADZUNA_APP_KEY;
   if (!id || !key) return { source: 'adzuna', added: 0, skipped: 'missing keys' };
   let added = 0;
   for (const kw of keywords.slice(0, 10)) {
-    const url = `https://api.adzuna.com/v1/api/jobs/us/search/1?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}&where=New%20Jersey&what=${encodeURIComponent(kw)}&results_per_page=20&sort_by=date`;
+    const country = profile.country || 'us';
+    const url = `https://api.adzuna.com/v1/api/jobs/${encodeURIComponent(country)}/search/1?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}&where=${encodeURIComponent(profile.location)}&what=${encodeURIComponent(kw)}&results_per_page=20&sort_by=date`;
     const res = await fetch(url); if (!res.ok) continue;
     const data = await res.json();
     for (const j of (data.results || [])) {
-      if (await upsertJob({ source:'Adzuna', external_id:`adzuna:${j.id}`, title:j.title, company:j.company?.display_name || '', location:j.location?.display_name || 'New Jersey', salary: j.salary_min ? `$${Math.round(j.salary_min).toLocaleString()}+` : '', description: clean(j.description || '').slice(0,500), url:j.redirect_url, date_posted:j.created })) added++;
+      if (await upsertJob({ source:'Adzuna', external_id:`adzuna:${profile.id}:${j.id}`, search_location: profile.location, title:j.title, company:j.company?.display_name || '', location:j.location?.display_name || profile.location, salary: j.salary_min ? `$${Math.round(j.salary_min).toLocaleString()}+` : '', description: clean(j.description || '').slice(0,500), url:j.redirect_url, date_posted:j.created })) added++;
     }
   }
   return { source: 'adzuna', added };
 }
 
-async function fetchUSAJobs() {
+async function fetchUSAJobs(profile = getLocationProfile()) {
+  if ((profile.country || 'us') !== 'us') return { source: 'usajobs', added: 0, skipped: 'US only source' };
   const auth = process.env.USAJOBS_AUTH_KEY, ua = process.env.USAJOBS_USER_AGENT;
   if (!auth || !ua) return { source: 'usajobs', added: 0, skipped: 'missing keys' };
-  const url = 'https://data.usajobs.gov/api/Search?LocationName=New%20Jersey&ResultsPerPage=50&DatePosted=30&SortField=OpenDate&SortDirection=Desc';
+  const url = `https://data.usajobs.gov/api/Search?LocationName=${encodeURIComponent(profile.location)}&ResultsPerPage=50&DatePosted=30&SortField=OpenDate&SortDirection=Desc`;
   const res = await fetch(url, { headers: { 'User-Agent': ua, 'Authorization-Key': auth, 'Host': 'data.usajobs.gov' } });
   if (!res.ok) return { source: 'usajobs', added: 0, error: res.statusText };
   const data = await res.json(); let added = 0;
   for (const item of data.SearchResult?.SearchResultItems || []) {
     const d = item.MatchedObjectDescriptor || {};
-    if (await upsertJob({ source:'USAJOBS', external_id:`usajobs:${d.PositionID}`, title:d.PositionTitle, company:d.OrganizationName, location:(d.PositionLocation || []).map(x=>x.LocationName).join(', ') || 'New Jersey', salary:d.PositionRemuneration?.[0]?.MinimumRange ? `$${d.PositionRemuneration[0].MinimumRange} - $${d.PositionRemuneration[0].MaximumRange}` : '', description: clean(d.QualificationSummary || '').slice(0,500), url:d.PositionURI, date_posted:d.PublicationStartDate })) added++;
+    if (await upsertJob({ source:'USAJOBS', external_id:`usajobs:${profile.id}:${d.PositionID}`, search_location: profile.location, title:d.PositionTitle, company:d.OrganizationName, location:(d.PositionLocation || []).map(x=>x.LocationName).join(', ') || profile.location, salary:d.PositionRemuneration?.[0]?.MinimumRange ? `$${d.PositionRemuneration[0].MinimumRange} - $${d.PositionRemuneration[0].MaximumRange}` : '', description: clean(d.QualificationSummary || '').slice(0,500), url:d.PositionURI, date_posted:d.PublicationStartDate })) added++;
   }
   return { source: 'usajobs', added };
 }
 
-async function fetchJooble() {
+async function fetchJooble(profile = getLocationProfile()) {
   const key = process.env.JOOBLE_API_KEY;
   if (!key) return { source: 'jooble', added: 0, skipped: 'missing key' };
 
@@ -262,7 +296,7 @@ async function fetchJooble() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         keywords: keyword,
-        location: 'New Jersey',
+        location: profile.location,
         page: 1,
         ResultOnPage: 20
       })
@@ -279,10 +313,11 @@ async function fetchJooble() {
 
       if (await upsertJob({
         source: 'Jooble',
-        external_id: `jooble:${j.id || j.link}`,
+        external_id: `jooble:${profile.id}:${j.id || j.link}`,
+        search_location: profile.location,
         title,
         company: j.company || '',
-        location: j.location || 'New Jersey',
+        location: j.location || profile.location,
         salary: j.salary || '',
         description,
         url: j.link || '',
@@ -294,12 +329,12 @@ async function fetchJooble() {
   return { source: 'jooble', added, checked };
 }
 
-async function fetchTheMuse() {
+async function fetchTheMuse(profile = getLocationProfile()) {
   let added = 0;
   let checked = 0;
 
   for (let page = 1; page <= 3; page++) {
-    const url = `https://www.themuse.com/api/public/jobs?page=${page}&location=${encodeURIComponent('New Jersey')}`;
+    const url = `https://www.themuse.com/api/public/jobs?page=${page}&location=${encodeURIComponent(profile.location)}`;
     const res = await fetch(url);
     if (!res.ok) return { source: 'themuse', added, checked, error: res.statusText };
 
@@ -311,13 +346,14 @@ async function fetchTheMuse() {
       const description = clean(j.contents || '').slice(0, 500);
       if (!shouldPullJob(j.name, description)) continue;
 
-      const locations = (j.locations || []).map(location => location.name).join(', ') || 'New Jersey';
+      const locations = (j.locations || []).map(location => location.name).join(', ') || profile.location;
       const company = j.company?.name || '';
       const url = j.refs?.landing_page || j.refs?.landingPage || '';
 
       if (await upsertJob({
         source: 'The Muse',
-        external_id: `themuse:${j.id}`,
+        external_id: `themuse:${profile.id}:${j.id}`,
+        search_location: profile.location,
         title: j.name || 'Job Opening',
         company,
         location: locations,
@@ -332,7 +368,8 @@ async function fetchTheMuse() {
   return { source: 'themuse', added, checked };
 }
 
-async function fetchRSS() {
+async function fetchRSS(profile = getLocationProfile()) {
+  if (profile.id !== 'nj') return { source: 'rss', added: 0, skipped: 'NJ RSS feeds only' };
   const feeds = [...defaultRssFeeds, ...extraRssFeeds];
   let added = 0, results = [];
   for (const feed of feeds) {
@@ -341,7 +378,7 @@ async function fetchRSS() {
       for (const item of parsed.items || []) {
         const text = clean(item.contentSnippet || item.content || item.summary || '');
         const loc = /\b(NJ|New Jersey)\b/i.test(`${item.title} ${text}`) ? 'New Jersey' : '';
-        if (await upsertJob({ source:'RSS', external_id:`rss:${item.guid || item.link || item.title}`, title:clean(item.title), company:parsed.title || 'Job Board', location:loc || 'New Jersey', salary:'', description:text.slice(0,500), url:item.link, date_posted:item.isoDate || item.pubDate || '' })) added++;
+        if (await upsertJob({ source:'RSS', external_id:`rss:${profile.id}:${item.guid || item.link || item.title}`, search_location: profile.location, title:clean(item.title), company:parsed.title || 'Job Board', location:loc || profile.location, salary:'', description:text.slice(0,500), url:item.link, date_posted:item.isoDate || item.pubDate || '' })) added++;
       }
       results.push({ feed, ok:true });
     } catch (e) { results.push({ feed, ok:false, error:e.message }); }
@@ -431,13 +468,21 @@ async function runNewspaperFetch() {
   return results;
 }
 
-async function runFetch() {
+async function runFetch(profileId) {
+  const profile = getLocationProfile(profileId);
   const results = [];
-  results.push(await fetchJooble());
-  results.push(await fetchTheMuse());
-  results.push(await fetchRSS());
-  results.push(await fetchAdzuna());
-  results.push(await fetchUSAJobs());
+  results.push(await fetchJooble(profile));
+  results.push(await fetchTheMuse(profile));
+  results.push(await fetchRSS(profile));
+  results.push(await fetchAdzuna(profile));
+  results.push(await fetchUSAJobs(profile));
+  return results;
+}
+async function runScheduledFetch() {
+  const results = [];
+  for (const profileId of fetchProfileIds) {
+    results.push({ profile: getLocationProfile(profileId), results: await runFetch(profileId) });
+  }
   return results;
 }
 
@@ -514,13 +559,15 @@ function requireAdmin(req,res,next){
   res.status(401).json({ error:'Admin password required' });
 }
 
-app.post('/api/fetch', requireAdmin, async (req,res)=> res.json({ results: await runFetch() }));
+app.post('/api/fetch', requireAdmin, async (req,res)=> res.json({ profile: getLocationProfile(req.body?.profile || req.query.profile), results: await runFetch(req.body?.profile || req.query.profile) }));
 app.post('/api/fetch-newspapers', requireAdmin, async (req,res)=> res.json({ results: await runNewspaperFetch() }));
 app.get('/api/config', requireAdmin, (req,res)=> res.json({
   facebookGroupUrl: FACEBOOK_GROUP_URL,
   facebookPageConfigured: facebookPageConfigured(),
   facebookAutoPostLimit,
   facebookAutoPostCron,
+  locationProfiles,
+  fetchProfileIds,
   joobleConfigured: Boolean(process.env.JOOBLE_API_KEY),
   adzunaConfigured: Boolean(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
   usajobsConfigured: Boolean(process.env.USAJOBS_USER_AGENT && process.env.USAJOBS_AUTH_KEY),
@@ -532,17 +579,21 @@ app.get('/api/config', requireAdmin, (req,res)=> res.json({
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const status = req.query.status || 'all';
+  const profile = getLocationProfile(req.query.profile);
+  const locationClause = "COALESCE(search_location, 'New Jersey') = ?";
   const rows = status === 'all'
-    ? queryAll(database, 'SELECT * FROM jobs ORDER BY created_at DESC LIMIT 300')
-    : queryAll(database, 'SELECT * FROM jobs WHERE status=? ORDER BY created_at DESC LIMIT 300', [status]);
+    ? queryAll(database, `SELECT * FROM jobs WHERE ${locationClause} ORDER BY created_at DESC LIMIT 300`, [profile.location])
+    : queryAll(database, `SELECT * FROM jobs WHERE status=? AND ${locationClause} ORDER BY created_at DESC LIMIT 300`, [status, profile.location]);
   res.json(rows.map(decorateJob));
 });
 app.get('/api/source-counts', requireAdmin, async (req,res)=>{
   const database = await getDb();
+  const profile = getLocationProfile(req.query.profile);
   res.json(queryAll(database, `SELECT source, COUNT(*) AS count
     FROM jobs
+    WHERE COALESCE(search_location, 'New Jersey') = ?
     GROUP BY source
-    ORDER BY count DESC`));
+    ORDER BY count DESC`, [profile.location]));
 });
 app.post('/api/jobs/:id/status', requireAdmin, async (req,res)=>{
   const database = await getDb();
@@ -583,7 +634,7 @@ app.get('*', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html'))
 
 if (require.main === module) {
   getDb().then(() => {
-    cron.schedule(fetchCron, () => runFetch().catch(console.error));
+    cron.schedule(fetchCron, () => runScheduledFetch().catch(console.error));
     cron.schedule(newspaperFetchCron, () => runNewspaperFetch().catch(console.error));
     if (facebookPageConfigured()) cron.schedule(facebookAutoPostCron, () => runFacebookAutoPost().catch(console.error));
     app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}; newspaper schedule: ${newspaperFetchCron}; facebook page schedule: ${facebookPageConfigured() ? facebookAutoPostCron : 'disabled'}`));
@@ -593,4 +644,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, runFetch, runNewspaperFetch, runFacebookAutoPost, postJobByIdToFacebookPage, buildPost, buildLinkPreviewPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };
+module.exports = { app, runFetch, runScheduledFetch, runNewspaperFetch, runFacebookAutoPost, postJobByIdToFacebookPage, buildPost, buildLinkPreviewPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };
