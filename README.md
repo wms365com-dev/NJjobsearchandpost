@@ -98,6 +98,12 @@ For sources that return broad results, `PULL_TITLE_KEYWORDS` controls which jobs
 PULL_TITLE_KEYWORDS=warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker
 ```
 
+Facebook post hashtags can be customized with:
+```bash
+POST_HASHTAGS=#NewJerseyJobs #NJJobs #NowHiring #JobsInNewJersey #HiringNJ
+```
+The app also adds category hashtags such as `#WarehouseJobs`, `#DataEntryJobs`, and `#CustomerServiceJobs` when they match the job.
+
 ## Add More RSS Feeds
 Set:
 ```bash

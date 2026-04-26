@@ -112,6 +112,8 @@ const extraRssFeeds = (process.env.EXTRA_RSS_FEEDS || '').split(',').map(s=>s.tr
 const pullTitleKeywords = (process.env.PULL_TITLE_KEYWORDS || 'warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const excludedTitlePattern = /\b(senior|principal|engineer|developer|software|cloud|devops|architect|scientist)\b/i;
+const defaultHashtags = (process.env.POST_HASHTAGS || '#NewJerseyJobs #NJJobs #NowHiring #JobsInNewJersey #HiringNJ')
+  .split(/\s+/).map(s => s.trim()).filter(Boolean);
 
 function clean(s='') { return String(s).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
 function detectCategory(title='', desc='') {
@@ -130,7 +132,20 @@ function detectCategory(title='', desc='') {
 function buildPost(job) {
   const salary = job.salary ? `\nPay: ${job.salary}` : '';
   const footer = process.env.POST_FOOTER || 'Follow New Jersey Jobs for daily hiring updates.';
-  return `NOW HIRING - NEW JERSEY\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || 'New Jersey'}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}`;
+  const hashtags = buildHashtags(job);
+  return `NOW HIRING - NEW JERSEY\n\nJob: ${job.title || 'Job Opening'}\nCompany: ${job.company || 'Company not listed'}\nLocation: ${job.location || 'New Jersey'}${salary}\n\nCategory: ${job.category || 'General'}\nApply / details: ${job.url}\n\n${footer}\n\n${hashtags}`;
+}
+function buildHashtags(job) {
+  const category = String(job.category || '').toLowerCase();
+  const title = String(job.title || '').toLowerCase();
+  const tags = [...defaultHashtags];
+  if (/warehouse|picker|packer|forklift|shipping|receiving/.test(`${category} ${title}`)) tags.push('#WarehouseJobs', '#WarehouseHiring');
+  if (/data entry|clerical|office|admin|reception/.test(`${category} ${title}`)) tags.push('#DataEntryJobs', '#OfficeJobs');
+  if (/customer service|call center|csr/.test(`${category} ${title}`)) tags.push('#CustomerServiceJobs');
+  if (/driver|delivery|cdl/.test(`${category} ${title}`)) tags.push('#DriverJobs', '#DeliveryJobs');
+  if (/retail|cashier|stock/.test(`${category} ${title}`)) tags.push('#RetailJobs');
+  if (/security|guard/.test(`${category} ${title}`)) tags.push('#SecurityJobs');
+  return [...new Set(tags)].join(' ');
 }
 function shouldPullJob(title='', desc='') {
   const normalizedTitle = String(title || '').toLowerCase();
@@ -504,6 +519,15 @@ app.post('/api/jobs/:id/post', requireAdmin, async (req,res)=>{
   runSql(database, 'UPDATE jobs SET post_text=? WHERE id=?', [req.body.post_text || '', req.params.id]);
   persistDb();
   res.json({ ok:true });
+});
+app.post('/api/jobs/:id/refresh-post', requireAdmin, async (req,res)=>{
+  const database = await getDb();
+  const job = queryAll(database, 'SELECT * FROM jobs WHERE id=? LIMIT 1', [req.params.id])[0];
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  const postText = buildPost(job);
+  runSql(database, 'UPDATE jobs SET post_text=? WHERE id=?', [postText, req.params.id]);
+  persistDb();
+  res.json({ ok:true, post_text: postText });
 });
 app.post('/api/jobs/:id/facebook-page', requireAdmin, async (req,res)=> res.json(await postJobByIdToFacebookPage(req.params.id)));
 app.post('/api/facebook-page/auto-post', requireAdmin, async (req,res)=> res.json(await runFacebookAutoPost(req.body?.limit || facebookAutoPostLimit)));
