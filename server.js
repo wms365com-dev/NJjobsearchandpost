@@ -7,6 +7,7 @@ const fs = require('fs');
 const cron = require('node-cron');
 const Parser = require('rss-parser');
 const initSqlJs = require('sql.js');
+const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -81,6 +82,11 @@ const rssParser = new Parser({ timeout: 12000 });
 const keywords = (process.env.JOB_KEYWORDS || 'warehouse,data entry,customer service,office admin,clerical,receptionist,call center,driver,delivery,security,retail,no experience,entry level')
   .split(',').map(s => s.trim()).filter(Boolean);
 const fetchCron = process.env.FETCH_CRON || '0 * * * *';
+const newspaperFetchCron = process.env.NEWSPAPER_FETCH_CRON || '0 8,20 * * *';
+const newspaperFeeds = (process.env.NEWSPAPER_RSS_FEEDS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+const newspaperPages = (process.env.NEWSPAPER_PAGE_URLS || 'https://patch.com/new-jersey/across-nj/localjobs,https://jobs.nj.com/careers/jobsearch')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const pullTitleKeywords = (process.env.PULL_TITLE_KEYWORDS || 'warehouse,data entry,customer service,office,admin,clerical,receptionist,call center,driver,delivery,retail,cashier,stock,shipping,receiving,forklift,packer,picker')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const excludedTitlePattern = /\b(senior|principal|engineer|developer|software|cloud|devops|architect|scientist)\b/i;
@@ -109,6 +115,13 @@ function shouldPullJob(title='', desc='') {
   const normalizedDesc = String(desc || '').toLowerCase();
   if (excludedTitlePattern.test(normalizedTitle)) return false;
   return pullTitleKeywords.some(keyword => normalizedTitle.includes(keyword) || normalizedDesc.includes(keyword));
+}
+function toAbsoluteUrl(url, baseUrl) {
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return '';
+  }
 }
 async function upsertJob(job) {
   const database = await getDb();
@@ -268,6 +281,88 @@ async function fetchRSS() {
   return { source: 'rss', added, results };
 }
 
+async function fetchNewspaperRSS() {
+  let added = 0, results = [];
+  for (const feed of newspaperFeeds) {
+    try {
+      const parsed = await rssParser.parseURL(feed);
+      for (const item of parsed.items || []) {
+        const title = clean(item.title);
+        const description = clean(item.contentSnippet || item.content || item.summary || '').slice(0, 500);
+        if (!shouldPullJob(title, description)) continue;
+        if (await upsertJob({
+          source: 'Newspaper RSS',
+          external_id: `newspaper-rss:${item.guid || item.link || title}`,
+          title,
+          company: parsed.title || 'Newspaper / Local Source',
+          location: /\b(NJ|New Jersey)\b/i.test(`${title} ${description}`) ? 'New Jersey' : 'New Jersey',
+          salary: '',
+          description,
+          url: item.link,
+          date_posted: item.isoDate || item.pubDate || ''
+        })) added++;
+      }
+      results.push({ feed, ok:true });
+    } catch (e) { results.push({ feed, ok:false, error:e.message }); }
+  }
+  return { source: 'newspaper-rss', added, results };
+}
+
+async function fetchNewspaperPages() {
+  let added = 0, checked = 0, results = [];
+  for (const pageUrl of newspaperPages.slice(0, 10)) {
+    try {
+      const res = await fetch(pageUrl, {
+        headers: {
+          'User-Agent': 'NJJobAutoPoster/1.0 (+manual Facebook group job lead review)'
+        }
+      });
+      if (!res.ok) {
+        results.push({ pageUrl, ok:false, error: res.statusText });
+        continue;
+      }
+      const $ = cheerio.load(await res.text());
+      const seen = new Set();
+      const links = [];
+      const pageTitle = clean($('title').first().text()) || 'Newspaper / Local Source';
+
+      $('a[href]').each((_, el) => {
+        if (seen.size >= 60) return;
+        const title = clean($(el).text());
+        const href = toAbsoluteUrl($(el).attr('href'), pageUrl);
+        if (!title || !href || seen.has(href)) return;
+        seen.add(href);
+        links.push({ title, href });
+      });
+
+      for (const { title, href } of links) {
+        checked++;
+        if (!shouldPullJob(title, pageTitle)) continue;
+        if (await upsertJob({
+          source: 'Newspaper Page',
+          external_id: `newspaper-page:${href}`,
+          title,
+          company: pageTitle,
+          location: 'New Jersey',
+          salary: '',
+          description: `Found on ${pageUrl}`,
+          url: href,
+          date_posted: ''
+        })) added++;
+      }
+      results.push({ pageUrl, ok:true, checked: seen.size });
+    } catch (e) { results.push({ pageUrl, ok:false, error:e.message }); }
+  }
+  return { source: 'newspaper-pages', added, checked, results };
+}
+
+async function runNewspaperFetch() {
+  const results = [];
+  results.push(await fetchNewspaperRSS());
+  results.push(await fetchNewspaperPages());
+  return results;
+}
+
 async function runFetch() {
   const results = [];
   results.push(await fetchJooble());
@@ -286,6 +381,7 @@ function requireAdmin(req,res,next){
 }
 
 app.post('/api/fetch', requireAdmin, async (req,res)=> res.json({ results: await runFetch() }));
+app.post('/api/fetch-newspapers', requireAdmin, async (req,res)=> res.json({ results: await runNewspaperFetch() }));
 app.get('/api/jobs', requireAdmin, async (req,res)=>{
   const database = await getDb();
   const status = req.query.status || 'new';
@@ -315,11 +411,12 @@ app.get('*', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html'))
 if (require.main === module) {
   getDb().then(() => {
     cron.schedule(fetchCron, () => runFetch().catch(console.error));
-    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}`));
+    cron.schedule(newspaperFetchCron, () => runNewspaperFetch().catch(console.error));
+    app.listen(PORT, ()=> console.log(`NJ Job Auto Poster running on ${PORT}; fetch schedule: ${fetchCron}; newspaper schedule: ${newspaperFetchCron}`));
   }).catch(err => {
     console.error('Failed to initialize database', err);
     process.exit(1);
   });
 }
 
-module.exports = { app, runFetch, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, shouldPullJob };
+module.exports = { app, runFetch, runNewspaperFetch, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, fetchNewspaperPages, fetchNewspaperRSS, shouldPullJob };

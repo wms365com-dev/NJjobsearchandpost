@@ -53,6 +53,15 @@ Use cron syntax to change it. For example, every 30 minutes:
 FETCH_CRON=*/30 * * * *
 ```
 
+Newspaper and local classified pages run separately twice per day by default:
+```bash
+NEWSPAPER_FETCH_CRON=0 8,20 * * *
+NEWSPAPER_PAGE_URLS=https://patch.com/new-jersey/across-nj/localjobs,https://jobs.nj.com/careers/jobsearch
+NEWSPAPER_RSS_FEEDS=
+```
+
+Prefer RSS feeds when a newspaper offers them. Keep page scraping to a short list of public job/classified pages and review the saved leads before posting.
+
 ## Recommended Facebook Workflow
 1. Click **Fetch New Jobs**.
 2. Review jobs.
