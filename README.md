@@ -24,6 +24,7 @@ Open: `http://localhost:3000`
 
 The app can run with only RSS feeds, but the best results for warehouse, customer service, data entry, office/admin, retail, security, and entry-level jobs come from adding API keys:
 - Adzuna: set `ADZUNA_APP_ID` and `ADZUNA_APP_KEY`.
+- Jooble: set `JOOBLE_API_KEY`.
 - USAJOBS: set `USAJOBS_USER_AGENT` and `USAJOBS_AUTH_KEY`.
 
 ## Railway Setup
@@ -34,6 +35,7 @@ The app can run with only RSS feeds, but the best results for warehouse, custome
    - `DATA_DIR=/data`
    - Do not set `ADMIN_PASSWORD` if you want the dashboard open with no login.
    - Optional: `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`
+   - Optional: `JOOBLE_API_KEY`
    - Optional: `USAJOBS_USER_AGENT`, `USAJOBS_AUTH_KEY`
 5. Deploy.
 

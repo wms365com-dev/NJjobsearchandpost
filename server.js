@@ -164,6 +164,52 @@ async function fetchUSAJobs() {
   return { source: 'usajobs', added };
 }
 
+async function fetchJooble() {
+  const key = process.env.JOOBLE_API_KEY;
+  if (!key) return { source: 'jooble', added: 0, skipped: 'missing key' };
+
+  let added = 0;
+  let checked = 0;
+  const searchTerms = keywords.slice(0, 12);
+
+  for (const keyword of searchTerms) {
+    const res = await fetch(`https://jooble.org/api/${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        keywords: keyword,
+        location: 'New Jersey',
+        page: 1,
+        ResultOnPage: 20
+      })
+    });
+
+    if (!res.ok) return { source: 'jooble', added, checked, error: res.statusText };
+    const data = await res.json();
+
+    for (const j of (data.jobs || [])) {
+      checked++;
+      const title = j.title || 'Job Opening';
+      const description = clean(j.snippet || j.description || '').slice(0, 500);
+      if (!shouldPullJob(title, description)) continue;
+
+      if (await upsertJob({
+        source: 'Jooble',
+        external_id: `jooble:${j.id || j.link}`,
+        title,
+        company: j.company || '',
+        location: j.location || 'New Jersey',
+        salary: j.salary || '',
+        description,
+        url: j.link || '',
+        date_posted: j.updated || ''
+      })) added++;
+    }
+  }
+
+  return { source: 'jooble', added, checked };
+}
+
 async function fetchTheMuse() {
   let added = 0;
   let checked = 0;
@@ -224,6 +270,7 @@ async function fetchRSS() {
 
 async function runFetch() {
   const results = [];
+  results.push(await fetchJooble());
   results.push(await fetchTheMuse());
   results.push(await fetchRSS());
   results.push(await fetchAdzuna());
@@ -275,4 +322,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, runFetch, buildPost, detectCategory, getDb, fetchTheMuse, shouldPullJob };
+module.exports = { app, runFetch, buildPost, detectCategory, getDb, fetchJooble, fetchTheMuse, shouldPullJob };
