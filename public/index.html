@@ -109,39 +109,30 @@
       $('msg').textContent=result.ok?'Hashtags added.':'Could not refresh post.';
     }
     async function copyPost(id){
-      const text=$('post'+id).value.replace(/\r?\n/g,'\r\n');
-      await copyText(text);
-      $('msg').textContent='Copied with line breaks. Paste into Facebook group or Meta Business Suite.';
+      await copyText($('post'+id).value);
+      $('msg').textContent='Copied in Facebook-safe plain text. Paste directly into Facebook.';
     }
     async function copyText(text){
-      const html=esc(text).replace(/\r\n/g,'<br>');
-      try{
-        if(window.ClipboardItem){
-          await navigator.clipboard.write([
-            new ClipboardItem({
-              'text/plain': new Blob([text],{type:'text/plain'}),
-              'text/html': new Blob([html],{type:'text/html'})
-            })
-          ]);
-        }else{
-          await navigator.clipboard.writeText(text);
-        }
-      }catch(e){
-        const ta=document.createElement('textarea');
-        ta.value=text;
-        ta.style.position='fixed';
-        ta.style.left='-9999px';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-      }
+      const normalized=String(text||'').replace(/\r?\n/g,'\n');
+      const ta=document.createElement('textarea');
+      ta.value=normalized;
+      ta.setAttribute('readonly','');
+      ta.style.position='fixed';
+      ta.style.left='-9999px';
+      ta.style.top='0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0,ta.value.length);
+      let copied=false;
+      try{ copied=document.execCommand('copy'); }catch(e){}
+      ta.remove();
+      if(!copied && navigator.clipboard) await navigator.clipboard.writeText(normalized);
     }
     async function copyLinkPreviewPost(id){
       const r=await fetch(`/api/jobs/${id}/link-preview-post`);
       const result=await r.json();
-      await copyText(String(result.post_text||'').replace(/\r?\n/g,'\r\n'));
+      await copyText(result.post_text||'');
       $('msg').textContent='Copied link-preview post. Paste into Facebook and wait for the card preview.';
     }
     async function getFacebookGroupUrl(){
